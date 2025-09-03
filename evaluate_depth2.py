@@ -9,6 +9,13 @@ import cv2
 from options import MonodepthOptions
 from networks import ResnetEncoder, DepthDecoder
 
+# --- SUGERENCIA: mejora de rendimiento/estabilidad en UNIX (igual que ASfMLearner)
+cv2.setNumThreads(0)
+
+# Constantes de evaluación (alineadas con ASfMLearner)
+EVAL_MIN_DEPTH = 1e-3
+EVAL_MAX_DEPTH = 150.0
+
 def readlines(p):
     with open(p, "r") as f:
         return f.read().splitlines()
@@ -21,7 +28,8 @@ def disp_to_depth(disp, min_depth, max_depth):
     return scaled, depth
 
 def compute_depth_errors(gt, pred):
-    mask = gt > 0
+    # >>> CAMBIO: máscara igual que ASfMLearner (en vez de gt>0)
+    mask = np.logical_and(gt > EVAL_MIN_DEPTH, gt < EVAL_MAX_DEPTH)
     if not np.any(mask):
         return None
     gt = gt[mask]
@@ -59,55 +67,50 @@ def load_model(opt, device):
 
 def load_gt_npz(npz_path):
     npz = np.load(npz_path, allow_pickle=True)
-    # Soporta claves comunes
     for k in ["data", "depths", "arr_0"]:
         if k in npz:
             depths = npz[k]
             break
     else:
-        # Si no hay clave conocida, toma el primer arreglo
         first_key = list(npz.keys())[0]
         depths = npz[first_key]
     depths = depths.astype(np.float32)
     return depths  # [N, H, W]
 
 def main():
-    # Extra flags (no rompen options.py)
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--gt_npz", type=str, default=None,
                         help="Ruta a gt_depths.npz; por defecto usa splits/<eval_split>/gt_depths.npz")
-    extra, _ = parser.parse_known_args()
+    extra, remaining = parser.parse_known_args()
 
     options = MonodepthOptions()
-    opt = options.parse()
+    opt = options.parser.parse_args(remaining)
 
     device = torch.device("cuda" if torch.cuda.is_available() and not opt.no_cuda else "cpu")
 
-    # Archivos del split
     split_dir = os.path.join(os.path.dirname(__file__), "splits", opt.eval_split)
     list_name = "test_files.txt" if os.path.isfile(os.path.join(split_dir, "test_files.txt")) else "val_files.txt"
     filenames = readlines(os.path.join(split_dir, list_name))
     N = len(filenames)
 
-    # GT depths
     gt_npz_path = extra.gt_npz or os.path.join(split_dir, "gt_depths.npz")
     assert os.path.isfile(gt_npz_path), f"No existe GT NPZ en: {gt_npz_path}"
     gt_depths = load_gt_npz(gt_npz_path)
     assert gt_depths.shape[0] >= N, f"gt_depths ({gt_depths.shape[0]}) < num samples ({N})"
 
-    # Predicciones de disparidad
     if opt.ext_disp_to_eval:
         pred_disps = np.load(opt.ext_disp_to_eval, allow_pickle=True)
         if pred_disps.ndim == 4:
             pred_disps = pred_disps.squeeze(-1)
-        print(f"-> Loaded disparities: {opt.ext_disp_to_eval} | shape={pred_disps.shape}")
-        feed_h, feed_w = pred_disps.shape[1], pred_disps.shape[2]
+        print(f"-> Using precomputed disparities with size {pred_disps.shape[2]}x{pred_disps.shape[1]}")
     else:
         assert opt.load_weights_folder, "Especifica --ext_disp_to_eval o --load_weights_folder"
         print("-> Loading model from:", opt.load_weights_folder)
         enc, dec, feed_h, feed_w = load_model(opt, device)
 
-        # Dataset para imágenes
+        # >>> LOG igual que ASfMLearner:
+        print(f"-> Computing predictions with size {feed_w}x{feed_h}")
+
         from datasets import SCAREDDataset
         ds = SCAREDDataset(opt.data_path, filenames, feed_h, feed_w, [0], 4, is_train=False)
         preds = []
@@ -120,37 +123,36 @@ def main():
                 disp = F.interpolate(disp, (feed_h, feed_w), mode="bilinear", align_corners=False)
                 preds.append(disp.squeeze().cpu().numpy())
         pred_disps = np.stack(preds, axis=0)
-        print(f"-> Computed disparities for {N} images")
 
-    # Sanity & alineación
     M = min(N, pred_disps.shape[0], gt_depths.shape[0])
     if M < N:
         print(f"[warn] Ajustando a {M} muestras por tamaño de disps/GT")
 
     accum = np.zeros(7, dtype=np.float64)
     evaluated = 0
+    scales_used = []  # >>> para imprimir med/std como ASfMLearner
 
     for i in range(M):
         disp = pred_disps[i]
-        # Pasamos disp -> depth
         disp_t = torch.from_numpy(disp).unsqueeze(0).unsqueeze(0)
         _, depth_pred_t = disp_to_depth(disp_t, opt.min_depth, opt.max_depth)
         depth_pred = depth_pred_t.squeeze().numpy()
 
         depth_gt = gt_depths[i]
 
-        # Si hay mismatch de tamaño, redimensiona la predicción a la forma del GT
+        # Resize pred a tamaño de GT si difiere
         if depth_pred.shape != depth_gt.shape:
             depth_pred = cv2.resize(depth_pred, (depth_gt.shape[1], depth_gt.shape[0]), interpolation=cv2.INTER_LINEAR)
 
-        # Median scaling (si aplica)
-        valid = depth_gt > 0
+        # >>> Median scaling (y acumular ratio)
+        valid = np.logical_and(depth_gt > EVAL_MIN_DEPTH, depth_gt < EVAL_MAX_DEPTH)
         if np.any(valid) and (not opt.disable_median_scaling) and (not opt.eval_stereo):
             scale = np.median(depth_gt[valid]) / (np.median(depth_pred[valid]) + 1e-6)
             depth_pred = depth_pred * scale
+            scales_used.append(scale)
 
-        # Clamps por seguridad
-        depth_pred = np.clip(depth_pred, opt.min_depth, opt.max_depth)
+        # Clamp con mismos límites de evaluación (opcional pero consistente)
+        depth_pred = np.clip(depth_pred, EVAL_MIN_DEPTH, EVAL_MAX_DEPTH)
 
         metrics = compute_depth_errors(depth_gt, depth_pred)
         if metrics is None:
@@ -161,6 +163,13 @@ def main():
 
     assert evaluated > 0, "No se evaluó ningún ejemplo válido."
     mean = accum / evaluated
+
+    print("\n-> Evaluating")
+    if scales_used and (not opt.disable_median_scaling) and (not opt.eval_stereo):
+        s = np.array(scales_used, dtype=np.float64)
+        med = np.median(s)
+        print("   Mono evaluation - using median scaling")
+        print(f" Scaling ratios | med: {med:.3f} | std: {np.std(s / (med + 1e-12)):.3f}")
 
     print("\n-> Depth evaluation on '{}' ({} samples)".format(opt.eval_split, evaluated))
     print("   abs_rel:  {:.4f}".format(mean[0]))
