@@ -127,9 +127,16 @@ class Trainer:
             self.models["predictive_mask"].to(self.device)
             self.parameters_to_train += list(self.models["predictive_mask"].parameters())
 
-        self.model_optimizer = optim.AdamW(self.parameters_to_train, self.opt.learning_rate)
-        self.model_lr_scheduler = optim.lr_scheduler.StepLR(
-            self.model_optimizer, self.opt.scheduler_step_size, 0.1)
+        # Use Adam optimizer as in the paper instead of AdamW. In the paper
+        # the authors train with a constant learning rate of 1e‑4 and do not
+        # apply a learning rate scheduler【846756998379457†L1284-L1291】.  We therefore
+        # select the standard Adam optimizer and disable the scheduler.
+        self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate)
+        # Do not use a learning rate scheduler; keep the learning rate constant
+        # throughout training to match the paper's implementation.  If a
+        # scheduler is desired in the future, set this attribute to an
+        # instance of a torch.optim.lr_scheduler.
+        self.model_lr_scheduler = None
 
         if self.opt.load_weights_folder is not None:
             self.load_model()
@@ -254,7 +261,10 @@ class Trainer:
                 self.val()
 
             self.step += 1
-        self.model_lr_scheduler.step()
+        # Advance the learning rate scheduler if one is defined.  We keep the
+        # scheduler optional to allow training with a constant learning rate.
+        if self.model_lr_scheduler is not None:
+            self.model_lr_scheduler.step()
 
     def process_batch(self, inputs):
         """Pass a minibatch through the network and generate images and losses
