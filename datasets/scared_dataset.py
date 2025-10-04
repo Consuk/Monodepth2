@@ -18,7 +18,7 @@ class SCAREDDataset(MonoDataset):
             [0,      0.6736, 0.4993, 0],
             [0,      0,    1,      0],
             [0,      0,    0,      1]
-        ], dtype=np.float32),
+        ], dtype=np.float32)
 
                 
         #256 / 320
