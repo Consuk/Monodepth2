@@ -19,7 +19,7 @@ class SCAREDDataset(MonoDataset):
             [0,      0,    1,      0],
             [0,      0,    0,      1]
         ], dtype=np.float32)
-
+        print("K type:", type(self.K), "K shape:", self.K.shape, "K =", self.K)
                 
         #256 / 320
         #fx769.807403688120 fy769.720558534159 cx675.226397736271 cy548.903474592445 k1-0.454260397098776 k20.179156666748519 k3-0.0285017743214105 p1-0.00134889190333418 p20.000738912923806121 skew-0.141152521412316
@@ -58,6 +58,8 @@ class SCAREDDataset(MonoDataset):
         return False
 
     def get_color(self, folder, frame_index, side, do_flip):
+        path = self.get_image_path(folder, frame_index, side)
+        print(f"Folder: {folder}, frame_index: {frame_index}, side: {side}, path: {path}")
         color = self.loader(self.get_image_path(folder, frame_index, side))
         
         if do_flip:

@@ -240,6 +240,13 @@ class Trainer:
             before_op_time = time.time()
 
             outputs, losses = self.process_batch(inputs)
+            ref = inputs[("color", 0, 0)]
+            prev = inputs[("color", -1, 0)]
+            next_im = inputs[("color", 1, 0)]
+            print("Batch mean ref:", ref.mean().item(),
+                "prev:", prev.mean().item(),
+                "next:", next_im.mean().item(),
+                "loss:", losses["loss"].item())
 
             self.model_optimizer.zero_grad()
             losses["loss"].backward()
@@ -495,6 +502,7 @@ class Trainer:
                         mode="bilinear", align_corners=False)
 
                 reprojection_losses *= mask
+                
 
                 # add a loss pushing mask to 1 (using nn.BCELoss for stability)
                 weighting_loss = 0.2 * nn.BCELoss()(mask, torch.ones(mask.shape).cuda())

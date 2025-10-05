@@ -9,10 +9,9 @@ import cv2
 from options import MonodepthOptions
 from networks import ResnetEncoder, DepthDecoder
 
-# --- SUGERENCIA: mejora de rendimiento/estabilidad en UNIX (igual que ASfMLearner)
 cv2.setNumThreads(0)
 
-# Constantes de evaluación (alineadas con ASfMLearner)
+# Constantes de evaluación
 EVAL_MIN_DEPTH = 1e-3
 EVAL_MAX_DEPTH = 150.0
 
@@ -28,7 +27,7 @@ def disp_to_depth(disp, min_depth, max_depth):
     return scaled, depth
 
 def compute_depth_errors(gt, pred):
-    # >>> CAMBIO: máscara igual que ASfMLearner (en vez de gt>0)
+    # >>>  máscara 
     mask = np.logical_and(gt > EVAL_MIN_DEPTH, gt < EVAL_MAX_DEPTH)
     if not np.any(mask):
         return None
@@ -108,7 +107,7 @@ def main():
         print("-> Loading model from:", opt.load_weights_folder)
         enc, dec, feed_h, feed_w = load_model(opt, device)
 
-        # >>> LOG igual que ASfMLearner:
+        # >>> LOGs
         print(f"-> Computing predictions with size {feed_w}x{feed_h}")
 
         from datasets import SCAREDDataset
@@ -130,7 +129,7 @@ def main():
 
     accum = np.zeros(7, dtype=np.float64)
     evaluated = 0
-    scales_used = []  # >>> para imprimir med/std como ASfMLearner
+    scales_used = []  # >>> para imprimir med/std 
 
     for i in range(M):
         disp = pred_disps[i]
@@ -151,7 +150,7 @@ def main():
             depth_pred = depth_pred * scale
             scales_used.append(scale)
 
-        # Clamp con mismos límites de evaluación (opcional pero consistente)
+        # Clamp con mismos límites de evaluación 
         depth_pred = np.clip(depth_pred, EVAL_MIN_DEPTH, EVAL_MAX_DEPTH)
 
         metrics = compute_depth_errors(depth_gt, depth_pred)
