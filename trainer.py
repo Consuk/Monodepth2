@@ -243,10 +243,10 @@ class Trainer:
             ref = inputs[("color", 0, 0)]
             prev = inputs[("color", -1, 0)]
             next_im = inputs[("color", 1, 0)]
-            print("Batch mean ref:", ref.mean().item(),
-                "prev:", prev.mean().item(),
-                "next:", next_im.mean().item(),
-                "loss:", losses["loss"].item())
+            # print("Batch mean ref:", ref.mean().item(),
+            #     "prev:", prev.mean().item(),
+            #     "next:", next_im.mean().item(),
+            #     "loss:", losses["loss"].item())
 
             self.model_optimizer.zero_grad()
             losses["loss"].backward()
