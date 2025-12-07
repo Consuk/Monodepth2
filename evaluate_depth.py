@@ -232,14 +232,25 @@ def evaluate(opt):
         quit()"""
 
     gt_path = os.path.join(splits_dir, opt.eval_split, "gt_depths.npz")
+
+    # allow_pickle=True is needed because 'data' is an object array (list of depth maps)
     data_npz = np.load(gt_path, fix_imports=True, encoding='latin1', allow_pickle=True)
     gt_depths = data_npz["data"]
 
-    # If it was saved as a list of arrays, dtype will be object.
-    if isinstance(gt_depths, np.ndarray) and gt_depths.dtype == object:
-        gt_depths = np.stack(gt_depths, axis=0)  # (N, H, W)
+    print("-> Loaded gt_depths")
+    print("   type:", type(gt_depths), "dtype:", getattr(gt_depths, "dtype", None))
 
-    print("gt_depths shape:", gt_depths.shape, "dtype:", gt_depths.dtype)
+    # For Hamlyn, 'gt_depths' is an object array of variable-size arrays.
+    # We DO NOT stack them; we keep them as a list-like structure.
+    if isinstance(gt_depths, np.ndarray) and gt_depths.dtype == object:
+        gt_depths = list(gt_depths)
+
+    # Optional sanity check
+    num_pred = pred_disps.shape[0]
+    num_gt = len(gt_depths)
+    print(f"-> num_pred: {num_pred}, num_gt: {num_gt}")
+    assert num_pred == num_gt, f"Mismatch: {num_pred} predictions vs {num_gt} gt depth maps"
+
 
     print("-> Evaluating")
 
