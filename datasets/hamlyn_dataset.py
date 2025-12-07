@@ -52,8 +52,8 @@ class HamlynDataset(MonoDataset):
         self.side_map = {"l": 2, "r": 3}
 
     def check_depth(self):
-        """Enable depth supervision when requested."""
-        return True
+        # """Enable depth supervision when requested. true para cuando se entrena""" 
+        return False
 
     def index_to_folder_and_frame_idx(self, index):
         """
